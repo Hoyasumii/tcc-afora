@@ -1,0 +1,20 @@
+// Fumaça do CRUD do afora: cria, lê, lista, altera e apaga um post.
+import { sign } from "hono/jwt";
+process.env.JWT_SECRET = "metrics-secret-0123456789abcdef0123456789";
+const { App } = await import("./posts");
+await App.start();
+const fetch = App.outputs.Api.build().fetch;
+const token = await sign({ sub: "u1", scope: "posts:write", exp: Math.floor(Date.now() / 1000) + 600 }, process.env.JWT_SECRET!, "HS256");
+const req = (m: string, p: string, b?: unknown, auth = true) => fetch(new Request("http://x/api" + p, { method: m, headers: { "content-type": "application/json", ...(auth ? { authorization: `Bearer ${token}` } : {}) }, body: b ? JSON.stringify(b) : undefined }));
+const body = { name: "Primeiro", slug: "Primeiro Post", description: "d", cover: "https://e.com/c.jpg", type: "review" };
+const log = async (label: string, r: Response) => console.log(label, r.status, (await r.text()).slice(0, 160));
+const c = await req("POST", "/posts", body); const created = await c.clone().json(); await log("create", c);
+const id = created.item?.id ?? created.post?.id ?? created.id;
+await log("create sem token", await req("POST", "/posts", body, false));
+await log("create com chave extra", await req("POST", "/posts", { ...body, slug: "x", admin: true }));
+await log("create slug repetido", await req("POST", "/posts", body));
+await log("get", await req("GET", `/posts/${id}`, undefined, false));
+await log("list", await req("GET", "/posts", undefined, false));
+await log("update", await req("PATCH", `/posts/${id}`, { name: "Novo" }));
+await log("delete", await req("DELETE", `/posts/${id}`));
+await log("get apagado", await req("GET", `/posts/${id}`, undefined, false));

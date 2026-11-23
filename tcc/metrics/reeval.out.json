@@ -1,0 +1,62 @@
+{
+ "which": "afora",
+ "bun": "1.4.4",
+ "by": {
+  "problems": [
+   21,
+   21
+  ],
+  "unique": [
+   2,
+   2
+  ],
+  "undeclared": [
+   5,
+   5
+  ],
+  "ownership": [
+   12,
+   12
+  ],
+  "concurrency": [
+   5,
+   5
+  ],
+  "sensitive": [
+   45,
+   45
+  ]
+ },
+ "failed": []
+}
+{
+ "which": "baseline",
+ "bun": "1.4.4",
+ "by": {
+  "problems": [
+   21,
+   21
+  ],
+  "unique": [
+   2,
+   2
+  ],
+  "undeclared": [
+   5,
+   5
+  ],
+  "ownership": [
+   12,
+   12
+  ],
+  "concurrency": [
+   5,
+   5
+  ],
+  "sensitive": [
+   45,
+   45
+  ]
+ },
+ "failed": []
+}

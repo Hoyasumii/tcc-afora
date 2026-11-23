@@ -1,0 +1,30 @@
+{
+  "baseline": {
+    "file": "examples/agent-built/baseline/runs/claude-code-2/app.ts",
+    "totalNonBlank": 283,
+    "guarantees": 146,
+    "share": 0.516,
+    "per": {
+      "undeclared": 5,
+      "sensitive": 4,
+      "problems": 58,
+      "unique": 18,
+      "ownership": 55,
+      "concurrency": 6
+    }
+  },
+  "afora": {
+    "file": "examples/agent-built/afora.json",
+    "totalNonBlank": 357,
+    "guarantees": 101,
+    "share": 0.283,
+    "per": {
+      "undeclared": 0,
+      "sensitive": 3,
+      "problems": 28,
+      "unique": 1,
+      "ownership": 50,
+      "concurrency": 19
+    }
+  }
+}

@@ -1,0 +1,9 @@
+create 201 {"item":{"id":"615c3974-40e1-4576-9592-9f3c667f94ff","createdAt":"2026-11-19T04:10:18.320Z","name":"Primeiro","slug":"primeiro-post","description":"d","cover":"
+create sem token 401 {"title":"Unauthorized","status":401}
+create com chave extra 400 {"title":"Bad Request","status":400,"detail":"Unrecognized key: \"admin\""}
+create slug repetido 409 {"title":"Conflict","status":409,"detail":"Slug taken."}
+get 200 {"item":{"id":"615c3974-40e1-4576-9592-9f3c667f94ff","name":"Primeiro","slug":"primeiro-post","description":"d","cover":"https://e.com/c.jpg","type":"review","c
+list 200 {"items":[{"id":"615c3974-40e1-4576-9592-9f3c667f94ff","name":"Primeiro","slug":"primeiro-post","description":"d","cover":"https://e.com/c.jpg","type":"review",
+update 200 {"item":{"id":"615c3974-40e1-4576-9592-9f3c667f94ff","name":"Novo","slug":"primeiro-post","description":"d","cover":"https://e.com/c.jpg","type":"review","creat
+delete 200 {"item":{"id":"615c3974-40e1-4576-9592-9f3c667f94ff","name":"Novo","slug":"primeiro-post","description":"d","cover":"https://e.com/c.jpg","type":"review","creat
+get apagado 404 {"title":"Not Found","status":404}

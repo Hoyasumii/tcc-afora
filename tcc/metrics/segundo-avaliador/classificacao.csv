@@ -1,0 +1,641 @@
+lado,linha,codigo,trecho
+baseline,1,,"import { Hono } from ""hono"";"
+baseline,2,,"import { HTTPException } from ""hono/http-exception"";"
+baseline,3,,"import { sign, verify } from ""hono/jwt"";"
+baseline,4,,"import { z } from ""zod"";"
+baseline,6,,// ---------------------------------------------------------------------------
+baseline,7,,// Problem details (RFC 9457)
+baseline,8,,// ---------------------------------------------------------------------------
+baseline,10,,class Problem extends Error {
+baseline,11,,constructor(
+baseline,12,,"readonly status: number,"
+baseline,13,,"readonly title: string,"
+baseline,14,,"readonly detail?: string,"
+baseline,15,,"readonly extra: Record<string, unknown> = {},"
+baseline,16,,) {
+baseline,17,,super(detail ?? title);
+baseline,18,,}
+baseline,19,,}
+baseline,21,,function problemResponse(problem: Problem): Response {
+baseline,22,,return new Response(
+baseline,23,,JSON.stringify({
+baseline,24,,"type: `about:blank#${problem.title.toLowerCase().replace(/\s+/g, ""-"")}`,"
+baseline,25,,"title: problem.title,"
+baseline,26,,"status: problem.status,"
+baseline,27,,"...(problem.detail ? { detail: problem.detail } : {}),"
+baseline,28,,"...problem.extra,"
+baseline,29,,"}),"
+baseline,30,,{
+baseline,31,,"status: problem.status,"
+baseline,32,,"headers: { ""content-type"": ""application/problem+json"" },"
+baseline,33,,"},"
+baseline,34,,);
+baseline,35,,}
+baseline,37,,// ---------------------------------------------------------------------------
+baseline,38,,// Schemas
+baseline,39,,// ---------------------------------------------------------------------------
+baseline,41,,const password = z
+baseline,42,,.string()
+baseline,43,,.min(7)
+baseline,44,,.max(128)
+baseline,45,,".regex(/[a-z]/, ""must contain a lowercase letter"")"
+baseline,46,,".regex(/[A-Z]/, ""must contain an uppercase letter"")"
+baseline,47,,".regex(/\d/, ""must contain a digit"")"
+baseline,48,,".regex(/[^A-Za-z0-9]/, ""must contain a symbol"");"
+baseline,50,,const RegisterBody = z
+baseline,51,,.object({
+baseline,52,,"name: z.string().trim().min(1),"
+baseline,53,,"email: z.email(),"
+baseline,54,,"password,"
+baseline,55,,})
+baseline,56,,.strict();
+baseline,58,,const LoginBody = z
+baseline,59,,.object({
+baseline,60,,"email: z.email(),"
+baseline,61,,"password: z.string().min(1),"
+baseline,62,,})
+baseline,63,,.strict();
+baseline,65,,const CreateEventBody = z
+baseline,66,,.object({
+baseline,67,,"title: z.string().trim().min(1),"
+baseline,68,,"slug: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),"
+baseline,69,,"capacity: z.number().int().min(1),"
+baseline,70,,})
+baseline,71,,.strict();
+baseline,73,,const UpdateEventBody = z
+baseline,74,,.object({
+baseline,75,,"title: z.string().trim().min(1).optional(),"
+baseline,76,,"capacity: z.number().int().min(1).optional(),"
+baseline,77,,})
+baseline,78,,.strict();
+baseline,80,,const BuyTicketBody = z
+baseline,81,,.object({
+baseline,82,,"buyerEmail: z.email(),"
+baseline,83,,})
+baseline,84,,.strict();
+baseline,86,,async function parseBody<T extends z.ZodType>(
+baseline,87,,"request: Request,"
+baseline,88,,"schema: T,"
+baseline,89,,): Promise<z.infer<T>> {
+baseline,90,,let raw: unknown;
+baseline,91,,try {
+baseline,92,,raw = await request.json();
+baseline,93,,} catch {
+baseline,94,,"throw new Problem(400, ""Bad Request"", ""The body is not valid JSON."");"
+baseline,95,,}
+baseline,96,,const result = schema.safeParse(raw);
+baseline,97,,if (!result.success) {
+baseline,98,,"throw new Problem(400, ""Bad Request"", ""The body is invalid."", {"
+baseline,99,,issues: result.error.issues.map((issue) => ({
+baseline,100,,"path: issue.path,"
+baseline,101,,"code: issue.code,"
+baseline,102,,"message: issue.message,"
+baseline,103,,"})),"
+baseline,104,,});
+baseline,105,,}
+baseline,106,,return result.data;
+baseline,107,,}
+baseline,109,,// ---------------------------------------------------------------------------
+baseline,110,,// Storage (in memory)
+baseline,111,,// ---------------------------------------------------------------------------
+baseline,113,,interface Organizer {
+baseline,114,,id: string;
+baseline,115,,name: string;
+baseline,116,,email: string;
+baseline,117,,passwordHash: string;
+baseline,118,,createdAt: string;
+baseline,119,,}
+baseline,121,,interface Event {
+baseline,122,,id: string;
+baseline,123,,organizerId: string;
+baseline,124,,title: string;
+baseline,125,,slug: string;
+baseline,126,,capacity: number;
+baseline,127,,createdAt: string;
+baseline,128,,}
+baseline,130,,interface Ticket {
+baseline,131,,id: string;
+baseline,132,,eventId: string;
+baseline,133,,buyerEmail: string;
+baseline,134,,createdAt: string;
+baseline,135,,}
+baseline,137,,"const organizers = new Map<string, Organizer>();"
+baseline,138,,"const organizersByEmail = new Map<string, string>();"
+baseline,139,,"const events = new Map<string, Event>();"
+baseline,140,,"const eventsBySlug = new Map<string, string>();"
+baseline,141,,"const tickets = new Map<string, Ticket>();"
+baseline,142,,"const ticketCount = new Map<string, number>();"
+baseline,144,,"const publicOrganizer = ({ passwordHash: _, ...organizer }: Organizer) =>"
+baseline,145,,organizer;
+baseline,147,,// ---------------------------------------------------------------------------
+baseline,148,,"// Tokens (HS256, secret from JWT_SECRET)"
+baseline,149,,// ---------------------------------------------------------------------------
+baseline,151,,"const ISSUER = ""ticketing"";"
+baseline,152,,const TOKEN_SECONDS = 15 * 60;
+baseline,154,,function secret(): string {
+baseline,155,,const value = process.env.JWT_SECRET;
+baseline,156,,if (!value || value.length < 32) {
+baseline,157,,"throw new Error(""JWT_SECRET must be set, with at least 32 characters."");"
+baseline,158,,}
+baseline,159,,return value;
+baseline,160,,}
+baseline,162,,async function issueToken(organizer: Organizer): Promise<string> {
+baseline,163,,const now = Math.floor(Date.now() / 1000);
+baseline,164,,return sign(
+baseline,165,,"{ sub: organizer.id, iss: ISSUER, iat: now, exp: now + TOKEN_SECONDS },"
+baseline,166,,"secret(),"
+baseline,167,,"""HS256"","
+baseline,168,,);
+baseline,169,,}
+baseline,171,,"/** The signed-in organizer, from `Authorization: Bearer <token>`, or a 401. */"
+baseline,172,,async function caller(request: Request): Promise<Organizer> {
+baseline,173,,"const header = request.headers.get(""authorization"") ?? """";"
+baseline,174,,const match = /^Bearer (.+)$/i.exec(header);
+baseline,175,,const unauthenticated = new Problem(
+baseline,176,,"401,"
+baseline,177,,"""Unauthorized"","
+baseline,178,,"""A valid bearer token is required."","
+baseline,179,,);
+baseline,180,,if (!match?.[1]) throw unauthenticated;
+baseline,181,,let subject: unknown;
+baseline,182,,try {
+baseline,183,,"const payload = await verify(match[1], secret(), ""HS256"");"
+baseline,184,,if (payload.iss !== ISSUER) throw unauthenticated;
+baseline,185,,subject = payload.sub;
+baseline,186,,} catch {
+baseline,187,,throw unauthenticated;
+baseline,188,,}
+baseline,189,,const organizer =
+baseline,190,,"typeof subject === ""string"" ? organizers.get(subject) : undefined;"
+baseline,191,,if (!organizer) throw unauthenticated;
+baseline,192,,return organizer;
+baseline,193,,}
+baseline,195,,"/** The event of `id` if `organizer` owns it; another organizer's is a 404, as i"
+baseline,196,,"function ownedEvent(id: string, organizer: Organizer): Event {"
+baseline,197,,const event = events.get(id);
+baseline,198,,if (!event || event.organizerId !== organizer.id) {
+baseline,199,,"throw new Problem(404, ""Not Found"", ""No such event."");"
+baseline,200,,}
+baseline,201,,return event;
+baseline,202,,}
+baseline,204,,// ---------------------------------------------------------------------------
+baseline,205,,// Routes
+baseline,206,,// ---------------------------------------------------------------------------
+baseline,208,,"export const app = new Hono().basePath(""/api"");"
+baseline,210,,"app.post(""/organizers"", async (c) => {"
+baseline,211,,"const body = await parseBody(c.req.raw, RegisterBody);"
+baseline,212,,const email = body.email.toLowerCase();
+baseline,213,,if (organizersByEmail.has(email)) {
+baseline,214,,throw new Problem(
+baseline,215,,"409,"
+baseline,216,,"""Conflict"","
+baseline,217,,"""An organizer with this email already exists."","
+baseline,218,,);
+baseline,219,,}
+baseline,220,,const organizer: Organizer = {
+baseline,221,,"id: crypto.randomUUID(),"
+baseline,222,,"name: body.name,"
+baseline,223,,"email,"
+baseline,224,,"passwordHash: await Bun.password.hash(body.password),"
+baseline,225,,"createdAt: new Date().toISOString(),"
+baseline,226,,};
+baseline,227,,"organizers.set(organizer.id, organizer);"
+baseline,228,,"organizersByEmail.set(email, organizer.id);"
+baseline,229,,"return c.json({ organizer: publicOrganizer(organizer) }, 201);"
+baseline,230,,});
+baseline,232,,"app.post(""/sessions"", async (c) => {"
+baseline,233,,"const body = await parseBody(c.req.raw, LoginBody);"
+baseline,234,,const id = organizersByEmail.get(body.email.toLowerCase());
+baseline,235,,const organizer = id ? organizers.get(id) : undefined;
+baseline,236,,if (
+baseline,237,,!organizer ||
+baseline,238,,"!(await Bun.password.verify(body.password, organizer.passwordHash))"
+baseline,239,,) {
+baseline,240,,"throw new Problem(401, ""Unauthorized"", ""Wrong email or password."");"
+baseline,241,,}
+baseline,242,,return c.json({
+baseline,243,,"organizer: publicOrganizer(organizer),"
+baseline,244,,"token: await issueToken(organizer),"
+baseline,245,,});
+baseline,246,,});
+baseline,248,,"app.post(""/events"", async (c) => {"
+baseline,249,,const organizer = await caller(c.req.raw);
+baseline,250,,"const body = await parseBody(c.req.raw, CreateEventBody);"
+baseline,251,,if (eventsBySlug.has(body.slug)) {
+baseline,252,,throw new Problem(
+baseline,253,,"409,"
+baseline,254,,"""Conflict"","
+baseline,255,,"""An event with this slug already exists."","
+baseline,256,,);
+baseline,257,,}
+baseline,258,,const event: Event = {
+baseline,259,,"id: crypto.randomUUID(),"
+baseline,260,,"organizerId: organizer.id,"
+baseline,261,,"title: body.title,"
+baseline,262,,"slug: body.slug,"
+baseline,263,,"capacity: body.capacity,"
+baseline,264,,"createdAt: new Date().toISOString(),"
+baseline,265,,};
+baseline,266,,"events.set(event.id, event);"
+baseline,267,,"eventsBySlug.set(event.slug, event.id);"
+baseline,268,,"return c.json({ event }, 201);"
+baseline,269,,});
+baseline,271,,"app.get(""/events/:id"", async (c) => {"
+baseline,272,,const organizer = await caller(c.req.raw);
+baseline,273,,"return c.json({ event: ownedEvent(c.req.param(""id""), organizer) });"
+baseline,274,,});
+baseline,276,,"app.patch(""/events/:id"", async (c) => {"
+baseline,277,,const organizer = await caller(c.req.raw);
+baseline,278,,"const event = ownedEvent(c.req.param(""id""), organizer);"
+baseline,279,,"const body = await parseBody(c.req.raw, UpdateEventBody);"
+baseline,280,,if (body.title !== undefined) event.title = body.title;
+baseline,281,,if (body.capacity !== undefined) event.capacity = body.capacity;
+baseline,282,,return c.json({ event });
+baseline,283,,});
+baseline,285,,"app.post(""/events/:eventId/tickets"", async (c) => {"
+baseline,286,,"const event = events.get(c.req.param(""eventId""));"
+baseline,287,,"if (!event) throw new Problem(404, ""Not Found"", ""No such event."");"
+baseline,288,,"const body = await parseBody(c.req.raw, BuyTicketBody);"
+baseline,289,,const sold = ticketCount.get(event.id) ?? 0;
+baseline,290,,if (sold >= event.capacity) {
+baseline,291,,"throw new Problem(422, ""Sold Out"", ""Every seat of this event is taken."");"
+baseline,292,,}
+baseline,293,,const ticket: Ticket = {
+baseline,294,,"id: crypto.randomUUID(),"
+baseline,295,,"eventId: event.id,"
+baseline,296,,"buyerEmail: body.buyerEmail,"
+baseline,297,,"createdAt: new Date().toISOString(),"
+baseline,298,,};
+baseline,299,,"tickets.set(ticket.id, ticket);"
+baseline,300,,"ticketCount.set(event.id, sold + 1);"
+baseline,301,,"return c.json({ ticket }, 201);"
+baseline,302,,});
+baseline,304,,app.notFound(() =>
+baseline,305,,"problemResponse(new Problem(404, ""Not Found"", ""No such route."")),"
+baseline,306,,);
+baseline,308,,app.onError((error) => {
+baseline,309,,if (error instanceof Problem) return problemResponse(error);
+baseline,310,,if (error instanceof HTTPException) {
+baseline,311,,"return problemResponse(new Problem(error.status, ""Error"", error.message));"
+baseline,312,,}
+baseline,313,,console.error(error);
+baseline,314,,"return problemResponse(new Problem(500, ""Internal Server Error""));"
+baseline,315,,});
+baseline,317,,export default app;
+afora,1,,{
+afora,2,,"""$schema"": ""../../packages/codegen/afora.schema.json"","
+afora,3,,"""version"": 1,"
+afora,4,,"""name"": ""ticketing"","
+afora,5,,"""output"": {"
+afora,6,,"""dir"": ""src/domain"""
+afora,7,,"},"
+afora,8,,"""provider"": ""inMemory"","
+afora,9,,"""properties"": {"
+afora,10,,"""Capacity"": {"
+afora,11,,"""base"": ""integer"","
+afora,12,,"""with"": {"
+afora,13,,"""min"": 1,"
+afora,14,,"""description"": ""The number of seats of an event."""
+afora,15,,}
+afora,16,,}
+afora,17,,"},"
+afora,18,,"""entities"": {"
+afora,19,,"""Organizer"": {"
+afora,20,,"""fields"": {"
+afora,21,,"""name"": ""text"""
+afora,22,,"},"
+afora,23,,"""plugins"": ["
+afora,24,,"""authenticatable"""
+afora,25,,]
+afora,26,,"},"
+afora,27,,"""Event"": {"
+afora,28,,"""fields"": {"
+afora,29,,"""organizer"": ""Organizer"","
+afora,30,,"""title"": ""text"","
+afora,31,,"""slug"": ""slug"","
+afora,32,,"""capacity"": ""Capacity"""
+afora,33,,"},"
+afora,34,,"""change"": ["
+afora,35,,"""title"","
+afora,36,,"""capacity"""
+afora,37,,]
+afora,38,,"},"
+afora,39,,"""Ticket"": {"
+afora,40,,"""fields"": {"
+afora,41,,"""event"": ""Event"","
+afora,42,,"""buyerEmail"": ""email"""
+afora,43,,}
+afora,44,,}
+afora,45,,"},"
+afora,46,,"""repositories"": {"
+afora,47,,"""Organizers"": {"
+afora,48,,"""entity"": ""Organizer"","
+afora,49,,"""actions"": ["
+afora,50,,"""findById"","
+afora,51,,"""findByEmail"","
+afora,52,,"""create"""
+afora,53,,]
+afora,54,,"},"
+afora,55,,"""Events"": {"
+afora,56,,"""entity"": ""Event"","
+afora,57,,"""actions"": ["
+afora,58,,"""findById"","
+afora,59,,"""create"","
+afora,60,,"""update"""
+afora,61,,"],"
+afora,62,,"""relations"": ["
+afora,63,,"""Organizers"""
+afora,64,,]
+afora,65,,"},"
+afora,66,,"""Tickets"": {"
+afora,67,,"""entity"": ""Ticket"","
+afora,68,,"""actions"": ["
+afora,69,,"""create"","
+afora,70,,"""exists"""
+afora,71,,"],"
+afora,72,,"""relations"": ["
+afora,73,,"""Events"""
+afora,74,,]
+afora,75,,}
+afora,76,,"},"
+afora,77,,"""exceptions"": {"
+afora,78,,"""EmailTaken"": {"
+afora,79,,"""layer"": ""use-case"","
+afora,80,,"""message"": ""An organizer with this email already exists."""
+afora,81,,"},"
+afora,82,,"""InvalidCredentials"": {"
+afora,83,,"""layer"": ""use-case"","
+afora,84,,"""message"": ""Wrong email or password."""
+afora,85,,"},"
+afora,86,,"""OrganizerNotFound"": {"
+afora,87,,"""layer"": ""use-case"","
+afora,88,,"""message"": ""No such organizer."""
+afora,89,,"},"
+afora,90,,"""EventNotFound"": {"
+afora,91,,"""layer"": ""use-case"","
+afora,92,,"""message"": ""No such event."""
+afora,93,,"},"
+afora,94,,"""SoldOut"": {"
+afora,95,,"""layer"": ""use-case"","
+afora,96,,"""message"": ""Every seat of this event is taken."""
+afora,97,,}
+afora,98,,"},"
+afora,99,,"""useCases"": {"
+afora,100,,"""RegisterOrganizer"": {"
+afora,101,,"""generic"": ""register"","
+afora,102,,"""repository"": ""Organizers"","
+afora,103,,"""description"": ""Signs an organizer up."","
+afora,104,,"""access"": {"
+afora,105,,"""public"": true"
+afora,106,,"},"
+afora,107,,"""options"": {"
+afora,108,,"""as"": ""organizer"","
+afora,109,,"""errors"": {"
+afora,110,,"""conflict"": ""EmailTaken"""
+afora,111,,}
+afora,112,,}
+afora,113,,"},"
+afora,114,,"""LoginOrganizer"": {"
+afora,115,,"""generic"": ""login"","
+afora,116,,"""repository"": ""Organizers"","
+afora,117,,"""description"": ""Checks the email and password of an organizer and gives a token."
+afora,118,,"""access"": {"
+afora,119,,"""public"": true"
+afora,120,,"},"
+afora,121,,"""options"": {"
+afora,122,,"""as"": ""organizer"","
+afora,123,,"""token"": {"
+afora,124,,"""secret"": {"
+afora,125,,"""env"": ""JWT_SECRET"""
+afora,126,,"},"
+afora,127,,"""issuer"": ""ticketing"""
+afora,128,,"},"
+afora,129,,"""errors"": {"
+afora,130,,"""invalid"": ""InvalidCredentials"""
+afora,131,,}
+afora,132,,}
+afora,133,,"},"
+afora,134,,"""CreateEvent"": {"
+afora,135,,"""generic"": ""create"","
+afora,136,,"""repository"": ""Events"","
+afora,137,,"""description"": ""Creates an event of the signed-in organizer."","
+afora,138,,"""access"": {"
+afora,139,,"""context"": {"
+afora,140,,"""organizerId"": ""subject"""
+afora,141,,}
+afora,142,,"},"
+afora,143,,"""options"": {"
+afora,144,,"""as"": ""event"","
+afora,145,,"""owner"": {"
+afora,146,,"""key"": ""organizer"","
+afora,147,,"""context"": ""organizerId"""
+afora,148,,"},"
+afora,149,,"""errors"": {"
+afora,150,,"""notFound"": ""OrganizerNotFound"""
+afora,151,,}
+afora,152,,}
+afora,153,,"},"
+afora,154,,"""GetEvent"": {"
+afora,155,,"""generic"": ""get"","
+afora,156,,"""repository"": ""Events"","
+afora,157,,"""description"": ""Gives an event of the signed-in organizer."","
+afora,158,,"""access"": {"
+afora,159,,"""context"": {"
+afora,160,,"""organizerId"": ""subject"""
+afora,161,,}
+afora,162,,"},"
+afora,163,,"""options"": {"
+afora,164,,"""as"": ""event"","
+afora,165,,"""owner"": {"
+afora,166,,"""key"": ""organizer"","
+afora,167,,"""context"": ""organizerId"""
+afora,168,,"},"
+afora,169,,"""errors"": {"
+afora,170,,"""notFound"": ""EventNotFound"""
+afora,171,,}
+afora,172,,}
+afora,173,,"},"
+afora,174,,"""UpdateEvent"": {"
+afora,175,,"""generic"": ""update"","
+afora,176,,"""repository"": ""Events"","
+afora,177,,"""description"": ""Changes the title or the capacity of an event of the signed-in o"
+afora,178,,"""access"": {"
+afora,179,,"""context"": {"
+afora,180,,"""organizerId"": ""subject"""
+afora,181,,}
+afora,182,,"},"
+afora,183,,"""options"": {"
+afora,184,,"""as"": ""event"","
+afora,185,,"""owner"": {"
+afora,186,,"""key"": ""organizer"","
+afora,187,,"""context"": ""organizerId"""
+afora,188,,"},"
+afora,189,,"""errors"": {"
+afora,190,,"""notFound"": ""EventNotFound"""
+afora,191,,}
+afora,192,,}
+afora,193,,"},"
+afora,194,,"""BuyTicket"": {"
+afora,195,,"""description"": ""Sells one seat of an event. The ticket is stored first and the c"
+afora,196,,"""input"": {"
+afora,197,,"""fields"": {"
+afora,198,,"""eventId"": ""id"","
+afora,199,,"""buyerEmail"": ""email"""
+afora,200,,}
+afora,201,,"},"
+afora,202,,"""response"": {"
+afora,203,,"""fields"": {"
+afora,204,,"""ticket"": ""Ticket"""
+afora,205,,}
+afora,206,,"},"
+afora,207,,"""dependencies"": {"
+afora,208,,"""events"": ""Events"","
+afora,209,,"""tickets"": ""Tickets"""
+afora,210,,"},"
+afora,211,,"""errors"": ["
+afora,212,,"""EventNotFound"","
+afora,213,,"""SoldOut"""
+afora,214,,"],"
+afora,215,,"""implementation"": {"
+afora,216,,"""steps"": ["
+afora,217,,{
+afora,218,,"""find"": ""events.findById"","
+afora,219,,"""args"": ["
+afora,220,,"""$input.eventId"""
+afora,221,,"],"
+afora,222,,"""as"": ""event"""
+afora,223,,"},"
+afora,224,,{
+afora,225,,"""ensure"": ""exists"","
+afora,226,,"""value"": ""$event"","
+afora,227,,"""error"": ""EventNotFound"""
+afora,228,,"},"
+afora,229,,{
+afora,230,,"""build"": ""Ticket"","
+afora,231,,"""values"": {"
+afora,232,,"""event"": ""$event"","
+afora,233,,"""buyerEmail"": ""$input.buyerEmail"""
+afora,234,,"},"
+afora,235,,"""as"": ""ticket"""
+afora,236,,"},"
+afora,237,,{
+afora,238,,"""create"": ""tickets"","
+afora,239,,"""value"": ""$ticket"","
+afora,240,,"""as"": ""saved"""
+afora,241,,"},"
+afora,242,,{
+afora,243,,"""find"": ""tickets.exists"","
+afora,244,,"""args"": ["
+afora,245,,{
+afora,246,,"""where"": {"
+afora,247,,"""event"": ""$event"""
+afora,248,,"},"
+afora,249,,"""offset"": ""$event.capacity"""
+afora,250,,}
+afora,251,,"],"
+afora,252,,"""as"": ""overbooked"""
+afora,253,,"},"
+afora,254,,{
+afora,255,,"""ensure"": ""false"","
+afora,256,,"""value"": ""$overbooked"","
+afora,257,,"""error"": ""SoldOut"""
+afora,258,,"},"
+afora,259,,{
+afora,260,,"""return"": {"
+afora,261,,"""ticket"": ""$saved"""
+afora,262,,}
+afora,263,,}
+afora,264,,]
+afora,265,,"},"
+afora,266,,"""access"": {"
+afora,267,,"""public"": true"
+afora,268,,}
+afora,269,,}
+afora,270,,"},"
+afora,271,,"""commands"": {"
+afora,272,,"""Accounts"": {"
+afora,273,,"""description"": ""Organizer accounts."","
+afora,274,,"""useCases"": {"
+afora,275,,"""register"": ""RegisterOrganizer"","
+afora,276,,"""login"": ""LoginOrganizer"""
+afora,277,,"},"
+afora,278,,"""transaction"": true"
+afora,279,,"},"
+afora,280,,"""BoxOffice"": {"
+afora,281,,"""description"": ""Events and their tickets."","
+afora,282,,"""useCases"": {"
+afora,283,,"""createEvent"": ""CreateEvent"","
+afora,284,,"""getEvent"": ""GetEvent"","
+afora,285,,"""updateEvent"": ""UpdateEvent"","
+afora,286,,"""buyTicket"": ""BuyTicket"""
+afora,287,,"},"
+afora,288,,"""transaction"": true"
+afora,289,,}
+afora,290,,"},"
+afora,291,,"""outputs"": {"
+afora,292,,"""Api"": {"
+afora,293,,"""commands"": ["
+afora,294,,"""Accounts"","
+afora,295,,"""BoxOffice"""
+afora,296,,"],"
+afora,297,,"""statuses"": {"
+afora,298,,"""EmailTaken"": 409,"
+afora,299,,"""InvalidCredentials"": 401,"
+afora,300,,"""OrganizerNotFound"": 404,"
+afora,301,,"""EventNotFound"": 404"
+afora,302,,"},"
+afora,303,,"""pipe"": ["
+afora,304,,{
+afora,305,,"""sink"": ""hono"","
+afora,306,,"""options"": {"
+afora,307,,"""basePath"": ""/api"","
+afora,308,,"""auth"": {"
+afora,309,,"""jwt"": {"
+afora,310,,"""secret"": {"
+afora,311,,"""env"": ""JWT_SECRET"""
+afora,312,,"},"
+afora,313,,"""issuer"": ""ticketing"""
+afora,314,,}
+afora,315,,"},"
+afora,316,,"""route"": {"
+afora,317,,"""Accounts.register"": {"
+afora,318,,"""method"": ""post"","
+afora,319,,"""path"": ""/organizers"","
+afora,320,,"""status"": 201"
+afora,321,,"},"
+afora,322,,"""Accounts.login"": {"
+afora,323,,"""method"": ""post"","
+afora,324,,"""path"": ""/sessions"""
+afora,325,,"},"
+afora,326,,"""BoxOffice.createEvent"": {"
+afora,327,,"""method"": ""post"","
+afora,328,,"""path"": ""/events"","
+afora,329,,"""status"": 201"
+afora,330,,"},"
+afora,331,,"""BoxOffice.getEvent"": {"
+afora,332,,"""method"": ""get"","
+afora,333,,"""path"": ""/events/{id}"""
+afora,334,,"},"
+afora,335,,"""BoxOffice.updateEvent"": {"
+afora,336,,"""method"": ""patch"","
+afora,337,,"""path"": ""/events/{id}"""
+afora,338,,"},"
+afora,339,,"""BoxOffice.buyTicket"": {"
+afora,340,,"""method"": ""post"","
+afora,341,,"""path"": ""/events/{eventId}/tickets"","
+afora,342,,"""status"": 201"
+afora,343,,}
+afora,344,,"},"
+afora,345,,"""docs"": {"
+afora,346,,"""path"": ""/openapi.json"","
+afora,347,,"""info"": {"
+afora,348,,"""title"": ""Ticketing"","
+afora,349,,"""version"": ""2.0.0"""
+afora,350,,}
+afora,351,,}
+afora,352,,}
+afora,353,,}
+afora,354,,]
+afora,355,,}
+afora,356,,}
+afora,357,,}

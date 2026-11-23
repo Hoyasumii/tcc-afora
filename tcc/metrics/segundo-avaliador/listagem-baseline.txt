@@ -1,0 +1,318 @@
+   1 | import { Hono } from "hono";
+   2 | import { HTTPException } from "hono/http-exception";
+   3 | import { sign, verify } from "hono/jwt";
+   4 | import { z } from "zod";
+   5 | 
+   6 | // ---------------------------------------------------------------------------
+   7 | // Problem details (RFC 9457)
+   8 | // ---------------------------------------------------------------------------
+   9 | 
+  10 | class Problem extends Error {
+  11 | 	constructor(
+  12 | 		readonly status: number,
+  13 | 		readonly title: string,
+  14 | 		readonly detail?: string,
+  15 | 		readonly extra: Record<string, unknown> = {},
+  16 | 	) {
+  17 | 		super(detail ?? title);
+  18 | 	}
+  19 | }
+  20 | 
+  21 | function problemResponse(problem: Problem): Response {
+  22 | 	return new Response(
+  23 | 		JSON.stringify({
+  24 | 			type: `about:blank#${problem.title.toLowerCase().replace(/\s+/g, "-")}`,
+  25 | 			title: problem.title,
+  26 | 			status: problem.status,
+  27 | 			...(problem.detail ? { detail: problem.detail } : {}),
+  28 | 			...problem.extra,
+  29 | 		}),
+  30 | 		{
+  31 | 			status: problem.status,
+  32 | 			headers: { "content-type": "application/problem+json" },
+  33 | 		},
+  34 | 	);
+  35 | }
+  36 | 
+  37 | // ---------------------------------------------------------------------------
+  38 | // Schemas
+  39 | // ---------------------------------------------------------------------------
+  40 | 
+  41 | const password = z
+  42 | 	.string()
+  43 | 	.min(7)
+  44 | 	.max(128)
+  45 | 	.regex(/[a-z]/, "must contain a lowercase letter")
+  46 | 	.regex(/[A-Z]/, "must contain an uppercase letter")
+  47 | 	.regex(/\d/, "must contain a digit")
+  48 | 	.regex(/[^A-Za-z0-9]/, "must contain a symbol");
+  49 | 
+  50 | const RegisterBody = z
+  51 | 	.object({
+  52 | 		name: z.string().trim().min(1),
+  53 | 		email: z.email(),
+  54 | 		password,
+  55 | 	})
+  56 | 	.strict();
+  57 | 
+  58 | const LoginBody = z
+  59 | 	.object({
+  60 | 		email: z.email(),
+  61 | 		password: z.string().min(1),
+  62 | 	})
+  63 | 	.strict();
+  64 | 
+  65 | const CreateEventBody = z
+  66 | 	.object({
+  67 | 		title: z.string().trim().min(1),
+  68 | 		slug: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
+  69 | 		capacity: z.number().int().min(1),
+  70 | 	})
+  71 | 	.strict();
+  72 | 
+  73 | const UpdateEventBody = z
+  74 | 	.object({
+  75 | 		title: z.string().trim().min(1).optional(),
+  76 | 		capacity: z.number().int().min(1).optional(),
+  77 | 	})
+  78 | 	.strict();
+  79 | 
+  80 | const BuyTicketBody = z
+  81 | 	.object({
+  82 | 		buyerEmail: z.email(),
+  83 | 	})
+  84 | 	.strict();
+  85 | 
+  86 | async function parseBody<T extends z.ZodType>(
+  87 | 	request: Request,
+  88 | 	schema: T,
+  89 | ): Promise<z.infer<T>> {
+  90 | 	let raw: unknown;
+  91 | 	try {
+  92 | 		raw = await request.json();
+  93 | 	} catch {
+  94 | 		throw new Problem(400, "Bad Request", "The body is not valid JSON.");
+  95 | 	}
+  96 | 	const result = schema.safeParse(raw);
+  97 | 	if (!result.success) {
+  98 | 		throw new Problem(400, "Bad Request", "The body is invalid.", {
+  99 | 			issues: result.error.issues.map((issue) => ({
+ 100 | 				path: issue.path,
+ 101 | 				code: issue.code,
+ 102 | 				message: issue.message,
+ 103 | 			})),
+ 104 | 		});
+ 105 | 	}
+ 106 | 	return result.data;
+ 107 | }
+ 108 | 
+ 109 | // ---------------------------------------------------------------------------
+ 110 | // Storage (in memory)
+ 111 | // ---------------------------------------------------------------------------
+ 112 | 
+ 113 | interface Organizer {
+ 114 | 	id: string;
+ 115 | 	name: string;
+ 116 | 	email: string;
+ 117 | 	passwordHash: string;
+ 118 | 	createdAt: string;
+ 119 | }
+ 120 | 
+ 121 | interface Event {
+ 122 | 	id: string;
+ 123 | 	organizerId: string;
+ 124 | 	title: string;
+ 125 | 	slug: string;
+ 126 | 	capacity: number;
+ 127 | 	createdAt: string;
+ 128 | }
+ 129 | 
+ 130 | interface Ticket {
+ 131 | 	id: string;
+ 132 | 	eventId: string;
+ 133 | 	buyerEmail: string;
+ 134 | 	createdAt: string;
+ 135 | }
+ 136 | 
+ 137 | const organizers = new Map<string, Organizer>();
+ 138 | const organizersByEmail = new Map<string, string>();
+ 139 | const events = new Map<string, Event>();
+ 140 | const eventsBySlug = new Map<string, string>();
+ 141 | const tickets = new Map<string, Ticket>();
+ 142 | const ticketCount = new Map<string, number>();
+ 143 | 
+ 144 | const publicOrganizer = ({ passwordHash: _, ...organizer }: Organizer) =>
+ 145 | 	organizer;
+ 146 | 
+ 147 | // ---------------------------------------------------------------------------
+ 148 | // Tokens (HS256, secret from JWT_SECRET)
+ 149 | // ---------------------------------------------------------------------------
+ 150 | 
+ 151 | const ISSUER = "ticketing";
+ 152 | const TOKEN_SECONDS = 15 * 60;
+ 153 | 
+ 154 | function secret(): string {
+ 155 | 	const value = process.env.JWT_SECRET;
+ 156 | 	if (!value || value.length < 32) {
+ 157 | 		throw new Error("JWT_SECRET must be set, with at least 32 characters.");
+ 158 | 	}
+ 159 | 	return value;
+ 160 | }
+ 161 | 
+ 162 | async function issueToken(organizer: Organizer): Promise<string> {
+ 163 | 	const now = Math.floor(Date.now() / 1000);
+ 164 | 	return sign(
+ 165 | 		{ sub: organizer.id, iss: ISSUER, iat: now, exp: now + TOKEN_SECONDS },
+ 166 | 		secret(),
+ 167 | 		"HS256",
+ 168 | 	);
+ 169 | }
+ 170 | 
+ 171 | /** The signed-in organizer, from `Authorization: Bearer <token>`, or a 401. */
+ 172 | async function caller(request: Request): Promise<Organizer> {
+ 173 | 	const header = request.headers.get("authorization") ?? "";
+ 174 | 	const match = /^Bearer (.+)$/i.exec(header);
+ 175 | 	const unauthenticated = new Problem(
+ 176 | 		401,
+ 177 | 		"Unauthorized",
+ 178 | 		"A valid bearer token is required.",
+ 179 | 	);
+ 180 | 	if (!match?.[1]) throw unauthenticated;
+ 181 | 	let subject: unknown;
+ 182 | 	try {
+ 183 | 		const payload = await verify(match[1], secret(), "HS256");
+ 184 | 		if (payload.iss !== ISSUER) throw unauthenticated;
+ 185 | 		subject = payload.sub;
+ 186 | 	} catch {
+ 187 | 		throw unauthenticated;
+ 188 | 	}
+ 189 | 	const organizer =
+ 190 | 		typeof subject === "string" ? organizers.get(subject) : undefined;
+ 191 | 	if (!organizer) throw unauthenticated;
+ 192 | 	return organizer;
+ 193 | }
+ 194 | 
+ 195 | /** The event of `id` if `organizer` owns it; another organizer's is a 404, as if it did not exist. */
+ 196 | function ownedEvent(id: string, organizer: Organizer): Event {
+ 197 | 	const event = events.get(id);
+ 198 | 	if (!event || event.organizerId !== organizer.id) {
+ 199 | 		throw new Problem(404, "Not Found", "No such event.");
+ 200 | 	}
+ 201 | 	return event;
+ 202 | }
+ 203 | 
+ 204 | // ---------------------------------------------------------------------------
+ 205 | // Routes
+ 206 | // ---------------------------------------------------------------------------
+ 207 | 
+ 208 | export const app = new Hono().basePath("/api");
+ 209 | 
+ 210 | app.post("/organizers", async (c) => {
+ 211 | 	const body = await parseBody(c.req.raw, RegisterBody);
+ 212 | 	const email = body.email.toLowerCase();
+ 213 | 	if (organizersByEmail.has(email)) {
+ 214 | 		throw new Problem(
+ 215 | 			409,
+ 216 | 			"Conflict",
+ 217 | 			"An organizer with this email already exists.",
+ 218 | 		);
+ 219 | 	}
+ 220 | 	const organizer: Organizer = {
+ 221 | 		id: crypto.randomUUID(),
+ 222 | 		name: body.name,
+ 223 | 		email,
+ 224 | 		passwordHash: await Bun.password.hash(body.password),
+ 225 | 		createdAt: new Date().toISOString(),
+ 226 | 	};
+ 227 | 	organizers.set(organizer.id, organizer);
+ 228 | 	organizersByEmail.set(email, organizer.id);
+ 229 | 	return c.json({ organizer: publicOrganizer(organizer) }, 201);
+ 230 | });
+ 231 | 
+ 232 | app.post("/sessions", async (c) => {
+ 233 | 	const body = await parseBody(c.req.raw, LoginBody);
+ 234 | 	const id = organizersByEmail.get(body.email.toLowerCase());
+ 235 | 	const organizer = id ? organizers.get(id) : undefined;
+ 236 | 	if (
+ 237 | 		!organizer ||
+ 238 | 		!(await Bun.password.verify(body.password, organizer.passwordHash))
+ 239 | 	) {
+ 240 | 		throw new Problem(401, "Unauthorized", "Wrong email or password.");
+ 241 | 	}
+ 242 | 	return c.json({
+ 243 | 		organizer: publicOrganizer(organizer),
+ 244 | 		token: await issueToken(organizer),
+ 245 | 	});
+ 246 | });
+ 247 | 
+ 248 | app.post("/events", async (c) => {
+ 249 | 	const organizer = await caller(c.req.raw);
+ 250 | 	const body = await parseBody(c.req.raw, CreateEventBody);
+ 251 | 	if (eventsBySlug.has(body.slug)) {
+ 252 | 		throw new Problem(
+ 253 | 			409,
+ 254 | 			"Conflict",
+ 255 | 			"An event with this slug already exists.",
+ 256 | 		);
+ 257 | 	}
+ 258 | 	const event: Event = {
+ 259 | 		id: crypto.randomUUID(),
+ 260 | 		organizerId: organizer.id,
+ 261 | 		title: body.title,
+ 262 | 		slug: body.slug,
+ 263 | 		capacity: body.capacity,
+ 264 | 		createdAt: new Date().toISOString(),
+ 265 | 	};
+ 266 | 	events.set(event.id, event);
+ 267 | 	eventsBySlug.set(event.slug, event.id);
+ 268 | 	return c.json({ event }, 201);
+ 269 | });
+ 270 | 
+ 271 | app.get("/events/:id", async (c) => {
+ 272 | 	const organizer = await caller(c.req.raw);
+ 273 | 	return c.json({ event: ownedEvent(c.req.param("id"), organizer) });
+ 274 | });
+ 275 | 
+ 276 | app.patch("/events/:id", async (c) => {
+ 277 | 	const organizer = await caller(c.req.raw);
+ 278 | 	const event = ownedEvent(c.req.param("id"), organizer);
+ 279 | 	const body = await parseBody(c.req.raw, UpdateEventBody);
+ 280 | 	if (body.title !== undefined) event.title = body.title;
+ 281 | 	if (body.capacity !== undefined) event.capacity = body.capacity;
+ 282 | 	return c.json({ event });
+ 283 | });
+ 284 | 
+ 285 | app.post("/events/:eventId/tickets", async (c) => {
+ 286 | 	const event = events.get(c.req.param("eventId"));
+ 287 | 	if (!event) throw new Problem(404, "Not Found", "No such event.");
+ 288 | 	const body = await parseBody(c.req.raw, BuyTicketBody);
+ 289 | 	const sold = ticketCount.get(event.id) ?? 0;
+ 290 | 	if (sold >= event.capacity) {
+ 291 | 		throw new Problem(422, "Sold Out", "Every seat of this event is taken.");
+ 292 | 	}
+ 293 | 	const ticket: Ticket = {
+ 294 | 		id: crypto.randomUUID(),
+ 295 | 		eventId: event.id,
+ 296 | 		buyerEmail: body.buyerEmail,
+ 297 | 		createdAt: new Date().toISOString(),
+ 298 | 	};
+ 299 | 	tickets.set(ticket.id, ticket);
+ 300 | 	ticketCount.set(event.id, sold + 1);
+ 301 | 	return c.json({ ticket }, 201);
+ 302 | });
+ 303 | 
+ 304 | app.notFound(() =>
+ 305 | 	problemResponse(new Problem(404, "Not Found", "No such route.")),
+ 306 | );
+ 307 | 
+ 308 | app.onError((error) => {
+ 309 | 	if (error instanceof Problem) return problemResponse(error);
+ 310 | 	if (error instanceof HTTPException) {
+ 311 | 		return problemResponse(new Problem(error.status, "Error", error.message));
+ 312 | 	}
+ 313 | 	console.error(error);
+ 314 | 	return problemResponse(new Problem(500, "Internal Server Error"));
+ 315 | });
+ 316 | 
+ 317 | export default app;
+ 318 | 

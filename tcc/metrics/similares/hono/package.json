@@ -1,0 +1,10 @@
+{
+ "name": "similares-hono",
+ "private": true,
+ "type": "module",
+ "dependencies": {
+  "hono": "4.13.20",
+  "zod": "4.6.7",
+  "@hono/zod-validator": "0.9.1"
+ }
+}

@@ -1,0 +1,358 @@
+   1 | {
+   2 | 	"$schema": "../../packages/codegen/afora.schema.json",
+   3 | 	"version": 1,
+   4 | 	"name": "ticketing",
+   5 | 	"output": {
+   6 | 		"dir": "src/domain"
+   7 | 	},
+   8 | 	"provider": "inMemory",
+   9 | 	"properties": {
+  10 | 		"Capacity": {
+  11 | 			"base": "integer",
+  12 | 			"with": {
+  13 | 				"min": 1,
+  14 | 				"description": "The number of seats of an event."
+  15 | 			}
+  16 | 		}
+  17 | 	},
+  18 | 	"entities": {
+  19 | 		"Organizer": {
+  20 | 			"fields": {
+  21 | 				"name": "text"
+  22 | 			},
+  23 | 			"plugins": [
+  24 | 				"authenticatable"
+  25 | 			]
+  26 | 		},
+  27 | 		"Event": {
+  28 | 			"fields": {
+  29 | 				"organizer": "Organizer",
+  30 | 				"title": "text",
+  31 | 				"slug": "slug",
+  32 | 				"capacity": "Capacity"
+  33 | 			},
+  34 | 			"change": [
+  35 | 				"title",
+  36 | 				"capacity"
+  37 | 			]
+  38 | 		},
+  39 | 		"Ticket": {
+  40 | 			"fields": {
+  41 | 				"event": "Event",
+  42 | 				"buyerEmail": "email"
+  43 | 			}
+  44 | 		}
+  45 | 	},
+  46 | 	"repositories": {
+  47 | 		"Organizers": {
+  48 | 			"entity": "Organizer",
+  49 | 			"actions": [
+  50 | 				"findById",
+  51 | 				"findByEmail",
+  52 | 				"create"
+  53 | 			]
+  54 | 		},
+  55 | 		"Events": {
+  56 | 			"entity": "Event",
+  57 | 			"actions": [
+  58 | 				"findById",
+  59 | 				"create",
+  60 | 				"update"
+  61 | 			],
+  62 | 			"relations": [
+  63 | 				"Organizers"
+  64 | 			]
+  65 | 		},
+  66 | 		"Tickets": {
+  67 | 			"entity": "Ticket",
+  68 | 			"actions": [
+  69 | 				"create",
+  70 | 				"exists"
+  71 | 			],
+  72 | 			"relations": [
+  73 | 				"Events"
+  74 | 			]
+  75 | 		}
+  76 | 	},
+  77 | 	"exceptions": {
+  78 | 		"EmailTaken": {
+  79 | 			"layer": "use-case",
+  80 | 			"message": "An organizer with this email already exists."
+  81 | 		},
+  82 | 		"InvalidCredentials": {
+  83 | 			"layer": "use-case",
+  84 | 			"message": "Wrong email or password."
+  85 | 		},
+  86 | 		"OrganizerNotFound": {
+  87 | 			"layer": "use-case",
+  88 | 			"message": "No such organizer."
+  89 | 		},
+  90 | 		"EventNotFound": {
+  91 | 			"layer": "use-case",
+  92 | 			"message": "No such event."
+  93 | 		},
+  94 | 		"SoldOut": {
+  95 | 			"layer": "use-case",
+  96 | 			"message": "Every seat of this event is taken."
+  97 | 		}
+  98 | 	},
+  99 | 	"useCases": {
+ 100 | 		"RegisterOrganizer": {
+ 101 | 			"generic": "register",
+ 102 | 			"repository": "Organizers",
+ 103 | 			"description": "Signs an organizer up.",
+ 104 | 			"access": {
+ 105 | 				"public": true
+ 106 | 			},
+ 107 | 			"options": {
+ 108 | 				"as": "organizer",
+ 109 | 				"errors": {
+ 110 | 					"conflict": "EmailTaken"
+ 111 | 				}
+ 112 | 			}
+ 113 | 		},
+ 114 | 		"LoginOrganizer": {
+ 115 | 			"generic": "login",
+ 116 | 			"repository": "Organizers",
+ 117 | 			"description": "Checks the email and password of an organizer and gives a token.",
+ 118 | 			"access": {
+ 119 | 				"public": true
+ 120 | 			},
+ 121 | 			"options": {
+ 122 | 				"as": "organizer",
+ 123 | 				"token": {
+ 124 | 					"secret": {
+ 125 | 						"env": "JWT_SECRET"
+ 126 | 					},
+ 127 | 					"issuer": "ticketing"
+ 128 | 				},
+ 129 | 				"errors": {
+ 130 | 					"invalid": "InvalidCredentials"
+ 131 | 				}
+ 132 | 			}
+ 133 | 		},
+ 134 | 		"CreateEvent": {
+ 135 | 			"generic": "create",
+ 136 | 			"repository": "Events",
+ 137 | 			"description": "Creates an event of the signed-in organizer.",
+ 138 | 			"access": {
+ 139 | 				"context": {
+ 140 | 					"organizerId": "subject"
+ 141 | 				}
+ 142 | 			},
+ 143 | 			"options": {
+ 144 | 				"as": "event",
+ 145 | 				"owner": {
+ 146 | 					"key": "organizer",
+ 147 | 					"context": "organizerId"
+ 148 | 				},
+ 149 | 				"errors": {
+ 150 | 					"notFound": "OrganizerNotFound"
+ 151 | 				}
+ 152 | 			}
+ 153 | 		},
+ 154 | 		"GetEvent": {
+ 155 | 			"generic": "get",
+ 156 | 			"repository": "Events",
+ 157 | 			"description": "Gives an event of the signed-in organizer.",
+ 158 | 			"access": {
+ 159 | 				"context": {
+ 160 | 					"organizerId": "subject"
+ 161 | 				}
+ 162 | 			},
+ 163 | 			"options": {
+ 164 | 				"as": "event",
+ 165 | 				"owner": {
+ 166 | 					"key": "organizer",
+ 167 | 					"context": "organizerId"
+ 168 | 				},
+ 169 | 				"errors": {
+ 170 | 					"notFound": "EventNotFound"
+ 171 | 				}
+ 172 | 			}
+ 173 | 		},
+ 174 | 		"UpdateEvent": {
+ 175 | 			"generic": "update",
+ 176 | 			"repository": "Events",
+ 177 | 			"description": "Changes the title or the capacity of an event of the signed-in organizer.",
+ 178 | 			"access": {
+ 179 | 				"context": {
+ 180 | 					"organizerId": "subject"
+ 181 | 				}
+ 182 | 			},
+ 183 | 			"options": {
+ 184 | 				"as": "event",
+ 185 | 				"owner": {
+ 186 | 					"key": "organizer",
+ 187 | 					"context": "organizerId"
+ 188 | 				},
+ 189 | 				"errors": {
+ 190 | 					"notFound": "EventNotFound"
+ 191 | 				}
+ 192 | 			}
+ 193 | 		},
+ 194 | 		"BuyTicket": {
+ 195 | 			"description": "Sells one seat of an event. The ticket is stored first and the command runs in a transaction, so a ticket past the capacity is rolled back with SoldOut.",
+ 196 | 			"input": {
+ 197 | 				"fields": {
+ 198 | 					"eventId": "id",
+ 199 | 					"buyerEmail": "email"
+ 200 | 				}
+ 201 | 			},
+ 202 | 			"response": {
+ 203 | 				"fields": {
+ 204 | 					"ticket": "Ticket"
+ 205 | 				}
+ 206 | 			},
+ 207 | 			"dependencies": {
+ 208 | 				"events": "Events",
+ 209 | 				"tickets": "Tickets"
+ 210 | 			},
+ 211 | 			"errors": [
+ 212 | 				"EventNotFound",
+ 213 | 				"SoldOut"
+ 214 | 			],
+ 215 | 			"implementation": {
+ 216 | 				"steps": [
+ 217 | 					{
+ 218 | 						"find": "events.findById",
+ 219 | 						"args": [
+ 220 | 							"$input.eventId"
+ 221 | 						],
+ 222 | 						"as": "event"
+ 223 | 					},
+ 224 | 					{
+ 225 | 						"ensure": "exists",
+ 226 | 						"value": "$event",
+ 227 | 						"error": "EventNotFound"
+ 228 | 					},
+ 229 | 					{
+ 230 | 						"build": "Ticket",
+ 231 | 						"values": {
+ 232 | 							"event": "$event",
+ 233 | 							"buyerEmail": "$input.buyerEmail"
+ 234 | 						},
+ 235 | 						"as": "ticket"
+ 236 | 					},
+ 237 | 					{
+ 238 | 						"create": "tickets",
+ 239 | 						"value": "$ticket",
+ 240 | 						"as": "saved"
+ 241 | 					},
+ 242 | 					{
+ 243 | 						"find": "tickets.exists",
+ 244 | 						"args": [
+ 245 | 							{
+ 246 | 								"where": {
+ 247 | 									"event": "$event"
+ 248 | 								},
+ 249 | 								"offset": "$event.capacity"
+ 250 | 							}
+ 251 | 						],
+ 252 | 						"as": "overbooked"
+ 253 | 					},
+ 254 | 					{
+ 255 | 						"ensure": "false",
+ 256 | 						"value": "$overbooked",
+ 257 | 						"error": "SoldOut"
+ 258 | 					},
+ 259 | 					{
+ 260 | 						"return": {
+ 261 | 							"ticket": "$saved"
+ 262 | 						}
+ 263 | 					}
+ 264 | 				]
+ 265 | 			},
+ 266 | 			"access": {
+ 267 | 				"public": true
+ 268 | 			}
+ 269 | 		}
+ 270 | 	},
+ 271 | 	"commands": {
+ 272 | 		"Accounts": {
+ 273 | 			"description": "Organizer accounts.",
+ 274 | 			"useCases": {
+ 275 | 				"register": "RegisterOrganizer",
+ 276 | 				"login": "LoginOrganizer"
+ 277 | 			},
+ 278 | 			"transaction": true
+ 279 | 		},
+ 280 | 		"BoxOffice": {
+ 281 | 			"description": "Events and their tickets.",
+ 282 | 			"useCases": {
+ 283 | 				"createEvent": "CreateEvent",
+ 284 | 				"getEvent": "GetEvent",
+ 285 | 				"updateEvent": "UpdateEvent",
+ 286 | 				"buyTicket": "BuyTicket"
+ 287 | 			},
+ 288 | 			"transaction": true
+ 289 | 		}
+ 290 | 	},
+ 291 | 	"outputs": {
+ 292 | 		"Api": {
+ 293 | 			"commands": [
+ 294 | 				"Accounts",
+ 295 | 				"BoxOffice"
+ 296 | 			],
+ 297 | 			"statuses": {
+ 298 | 				"EmailTaken": 409,
+ 299 | 				"InvalidCredentials": 401,
+ 300 | 				"OrganizerNotFound": 404,
+ 301 | 				"EventNotFound": 404
+ 302 | 			},
+ 303 | 			"pipe": [
+ 304 | 				{
+ 305 | 					"sink": "hono",
+ 306 | 					"options": {
+ 307 | 						"basePath": "/api",
+ 308 | 						"auth": {
+ 309 | 							"jwt": {
+ 310 | 								"secret": {
+ 311 | 									"env": "JWT_SECRET"
+ 312 | 								},
+ 313 | 								"issuer": "ticketing"
+ 314 | 							}
+ 315 | 						},
+ 316 | 						"route": {
+ 317 | 							"Accounts.register": {
+ 318 | 								"method": "post",
+ 319 | 								"path": "/organizers",
+ 320 | 								"status": 201
+ 321 | 							},
+ 322 | 							"Accounts.login": {
+ 323 | 								"method": "post",
+ 324 | 								"path": "/sessions"
+ 325 | 							},
+ 326 | 							"BoxOffice.createEvent": {
+ 327 | 								"method": "post",
+ 328 | 								"path": "/events",
+ 329 | 								"status": 201
+ 330 | 							},
+ 331 | 							"BoxOffice.getEvent": {
+ 332 | 								"method": "get",
+ 333 | 								"path": "/events/{id}"
+ 334 | 							},
+ 335 | 							"BoxOffice.updateEvent": {
+ 336 | 								"method": "patch",
+ 337 | 								"path": "/events/{id}"
+ 338 | 							},
+ 339 | 							"BoxOffice.buyTicket": {
+ 340 | 								"method": "post",
+ 341 | 								"path": "/events/{eventId}/tickets",
+ 342 | 								"status": 201
+ 343 | 							}
+ 344 | 						},
+ 345 | 						"docs": {
+ 346 | 							"path": "/openapi.json",
+ 347 | 							"info": {
+ 348 | 								"title": "Ticketing",
+ 349 | 								"version": "2.0.0"
+ 350 | 							}
+ 351 | 						}
+ 352 | 					}
+ 353 | 				}
+ 354 | 			]
+ 355 | 		}
+ 356 | 	}
+ 357 | }
+ 358 | 

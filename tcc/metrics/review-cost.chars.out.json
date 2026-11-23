@@ -1,0 +1,26 @@
+{
+ "baseline": {
+  "chars_total": 7358,
+  "chars_guarantees": 3670,
+  "per": {
+   "undeclared": 50,
+   "sensitive": 168,
+   "problems": 1285,
+   "unique": 379,
+   "ownership": 1587,
+   "concurrency": 201
+  }
+ },
+ "afora": {
+  "chars_total": 4491,
+  "chars_guarantees": 1226,
+  "per": {
+   "undeclared": 0,
+   "sensitive": 29,
+   "problems": 479,
+   "unique": 14,
+   "ownership": 500,
+   "concurrency": 204
+  }
+ }
+}

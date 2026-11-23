@@ -1,0 +1,27 @@
+{
+  "tool": "Hono 4.13.20 + Zod 4.6.7 + @hono/zod-validator 0.9.1",
+  "runtime": "Bun 1.4.4",
+  "valid": {
+    "status": 201,
+    "passwordHashInResponse": true
+  },
+  "extraKey": {
+    "status": 201,
+    "isAdminTrueInResponse": false
+  },
+  "businessError": {
+    "status": 500,
+    "body": "Internal Server Error"
+  },
+  "strictObjectOptIn": {
+    "status": 500,
+    "note": "ZodError sem onError"
+  },
+  "zValidator": {
+    "status": 201,
+    "isAdminTrueInResponse": false
+  },
+  "zValidatorStrictObject": {
+    "status": 400
+  }
+}

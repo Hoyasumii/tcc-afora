@@ -1,0 +1,26 @@
+== afora-cms (getafora.com)
+HEAD 78b772f; commits: 167; período: 2026-11-08 2026-11-16
+@afora/core: "@afora/core": "^0.0.11"
+domínio + API: 138 arquivos, 21461 linhas não vazias
+testes: 46 arquivos em packages/domain e apps/api (55 no repositório)
+declarações (chamadas, X( ou X<): applicationOf 1; entityOf 10; exceptionOf 43; repositoryOf 10; useCaseOf 37; 
+coautoria:
+    106 Claude Opus 5.5
+     12 Claude Fable 5.2
+      1 Claude Sonnet 5.5
+
+== hoyasumii.dev (Hoyasumii/Hoyasumii, apps/api + packages/shared)
+migração: 4f41cb3 (2026-11-11); merge: 93909be 2026-11-16
+@afora: "@afora/core": "27.0.0-rc.2" "@afora/hono": "27.0.0-rc.2"
+antes (4f41cb3^): 39 arquivos, 3344 linhas não vazias
+depois (4f41cb3): 41 arquivos, 4232 linhas não vazias
+HEAD 036c2a2: 44 arquivos, 4420 linhas não vazias
+  apps/api/src/domain: antes  0 linhas não vazias | depois  1544 linhas não vazias
+  apps/api/src/providers: antes  0 linhas não vazias | depois  314 linhas não vazias
+  apps/api/src/services: antes  703 linhas não vazias | depois  113 linhas não vazias
+  apps/api/src/repositories: antes  432 linhas não vazias | depois  0 linhas não vazias
+  apps/api/src/routes: antes  465 linhas não vazias | depois  300 linhas não vazias
+  packages/shared/src/schema.ts: antes  351 linhas não vazias | depois  481 linhas não vazias
+commits em apps/api: 21
+coautoria (apps/api):
+     21 Claude Opus 5.5

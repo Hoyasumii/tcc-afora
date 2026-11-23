@@ -1,0 +1,9 @@
+create 201 {"item":{"id":"01a1f1ff-36ef-778a-a66a-29bf686bb6ae","createdAt":"2026-11-19T04:09:57.231Z","name":"Primeiro","slug":"primeiro-post","description":"d","cover":"
+create sem token 401 {"type":"urn:afora:exception:Unauthenticated","title":"Unauthenticated","status":401,"detail":"Authentication is required.","layer":"output"}
+create com chave extra 400 {"type":"urn:afora:exception:InvalidUseCaseInput","title":"InvalidUseCaseInput","status":400,"detail":"Invalid UseCase input: \"admin\" is not declared.","layer
+create slug repetido 409 {"type":"urn:afora:exception:RepositoryUniqueViolation","title":"RepositoryUniqueViolation","status":409,"detail":"\"PostRepository\" already holds an entity wi
+get 200 {"item":{"id":"01a1f1ff-36ef-778a-a66a-29bf686bb6ae","createdAt":"2026-11-19T04:09:57.231Z","name":"Primeiro","slug":"primeiro-post","description":"d","cover":"
+list 200 {"items":[{"id":"01a1f1ff-36ef-778a-a66a-29bf686bb6ae","createdAt":"2026-11-19T04:09:57.231Z","name":"Primeiro","slug":"primeiro-post","description":"d","cover"
+update 200 {"item":{"id":"01a1f1ff-36ef-778a-a66a-29bf686bb6ae","createdAt":"2026-11-19T04:09:57.231Z","slug":"primeiro-post","description":"d","cover":"https://e.com/c.jp
+delete 200 {"item":{"id":"01a1f1ff-36ef-778a-a66a-29bf686bb6ae","createdAt":"2026-11-19T04:09:57.231Z","updatedAt":"2026-11-19T04:09:57.248Z","name":"Novo","slug":"primeir
+get apagado 404 {"type":"urn:afora:exception:UseCaseEntityNotFound","title":"UseCaseEntityNotFound","status":404,"detail":"The entity was not found.","layer":"use-case"}

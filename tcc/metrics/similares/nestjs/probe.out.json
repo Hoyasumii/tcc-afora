@@ -1,0 +1,54 @@
+{
+  "tool": "NestJS 12.6.0",
+  "runtime": "Bun 1.4.4",
+  "results": [
+    {
+      "config": "sem ValidationPipe",
+      "valid": {
+        "status": 201,
+        "passwordHashInResponse": true
+      },
+      "extraKey": {
+        "status": 201,
+        "isAdminTrueInResponse": true
+      },
+      "businessErrorStatus": 500,
+      "excludeOptIn": {
+        "status": 201,
+        "passwordHashInResponse": true
+      }
+    },
+    {
+      "config": "ValidationPipe()",
+      "valid": {
+        "status": 201,
+        "passwordHashInResponse": true
+      },
+      "extraKey": {
+        "status": 201,
+        "isAdminTrueInResponse": true
+      },
+      "businessErrorStatus": 500,
+      "excludeOptIn": {
+        "status": 201,
+        "passwordHashInResponse": true
+      }
+    },
+    {
+      "config": "ValidationPipe({ whitelist, forbidNonWhitelisted }) + ClassSerializerInterceptor",
+      "valid": {
+        "status": 201,
+        "passwordHashInResponse": true
+      },
+      "extraKey": {
+        "status": 400,
+        "isAdminTrueInResponse": false
+      },
+      "businessErrorStatus": 500,
+      "excludeOptIn": {
+        "status": 201,
+        "passwordHashInResponse": false
+      }
+    }
+  ]
+}

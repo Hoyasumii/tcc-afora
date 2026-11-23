@@ -1,0 +1,13 @@
+{
+ "bun": "1.4.4",
+ "N": 3000,
+ "cpu": "Intel(R) Xeon(R) Processor @ 2.10GHz",
+ "afora": {
+  "POST /posts µs (mediana)": 444.6,
+  "GET /posts/:id µs (mediana)": 318.8
+ },
+ "enxuto": {
+  "POST /posts µs (mediana)": 132.9,
+  "GET /posts/:id µs (mediana)": 58
+ }
+}

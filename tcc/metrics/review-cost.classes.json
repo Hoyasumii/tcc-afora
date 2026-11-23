@@ -1,0 +1,25 @@
+{
+  "_criterio": "Linhas não vazias. Linha de base: examples/agent-built/baseline/runs/claude-code-2/app.ts. afora: examples/agent-built/afora.json (formatado pelo servidor MCP, um valor por linha). Cada intervalo [início, fim] é inclusivo. Uma linha conta só para uma garantia. Classificação feita à mão pelo revisor do TCC, a partir do que cada trecho faz; está aqui para ser contestada.",
+  "baseline": {
+    "file": "examples/agent-built/baseline/runs/claude-code-2/app.ts",
+    "classes": {
+      "undeclared": { "label": "Chaves não declaradas (.strict())", "ranges": [[56,56],[63,63],[71,71],[78,78],[84,84]] },
+      "sensitive": { "label": "Remoção do hash das respostas", "ranges": [[144,145],[229,229],[243,243]] },
+      "problems": { "label": "problem+json e mapeamento de erros (Problem, parseBody, notFound, onError)", "ranges": [[10,35],[86,107],[304,315]] },
+      "unique": { "label": "Unicidade de e-mail e slug", "ranges": [[138,138],[140,140],[213,219],[228,228],[251,257],[267,267]] },
+      "ownership": { "label": "Token e checagem de dono", "ranges": [[151,202],[244,244],[249,249],[260,260],[272,273],[277,278]] },
+      "concurrency": { "label": "Capacidade (contador e checagem)", "ranges": [[142,142],[289,292],[300,300]] }
+    }
+  },
+  "afora": {
+    "file": "examples/agent-built/afora.json",
+    "classes": {
+      "undeclared": { "label": "Chaves não declaradas", "ranges": [] },
+      "sensitive": { "label": "plugin authenticatable", "ranges": [[23,25]] },
+      "problems": { "label": "exceções e statuses", "ranges": [[77,98],[297,302]] },
+      "unique": { "label": "tipo slug (e e-mail único do authenticatable)", "ranges": [[31,31]] },
+      "ownership": { "label": "access, owner, token e auth do sink", "ranges": [[104,106],[118,120],[123,128],[138,142],[145,148],[158,162],[165,168],[178,182],[185,188],[266,268],[308,315]] },
+      "concurrency": { "label": "passos de exists/ensure + transaction", "ranges": [[242,258],[278,278],[288,288]] }
+    }
+  }
+}

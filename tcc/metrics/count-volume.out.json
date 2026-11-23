@@ -1,0 +1,58 @@
+{
+  "roastery": {
+    "capsule": "capsules.post_post",
+    "commit": null,
+    "all": {
+      "files": 87,
+      "lines": 2335,
+      "nonblank": 2052,
+      "chars": 59994
+    },
+    "comparable": {
+      "files": 77,
+      "lines": 1806,
+      "nonblank": 1631,
+      "chars": 47843
+    },
+    "by_layer": {
+      "application": {
+        "files": 15,
+        "lines": 377,
+        "nonblank": 328,
+        "chars": 10637
+      },
+      "domain": {
+        "files": 19,
+        "lines": 255,
+        "nonblank": 225,
+        "chars": 6986
+      },
+      "infra": {
+        "files": 35,
+        "lines": 1057,
+        "nonblank": 890,
+        "chars": 26139
+      },
+      "presentation": {
+        "files": 18,
+        "lines": 646,
+        "nonblank": 609,
+        "chars": 16232
+      }
+    }
+  },
+  "afora": {
+    "file": "tcc/metrics/crud-afora/posts.ts",
+    "files": 1,
+    "lines": 52,
+    "nonblank": 47,
+    "chars": 1122
+  },
+  "lean": {
+    "file": "tcc/metrics/crud-lean/posts.ts",
+    "files": 1,
+    "lines": 84,
+    "nonblank": 80,
+    "chars": 4055
+  }
+}
